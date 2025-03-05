@@ -1,42 +1,73 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-
+﻿using Telegram.Bot;
+using Telegram.Bot.Polling;
+using Telegram.Bot.Types.Enums;
+using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Hosting;
+using DiplomWork.Model;
 namespace DiplomWork
 {
     internal class Program
     {
-        static void Main(string[] args)
-        {
-            SQLMachine sqlListMachine = new SQLMachine();
-            ILocation locationUser = new Location(1, 2);
-            User user = new User("Виталий",locationUser);
+        private static TelegramBotClient _botClient;
+        private static CancellationTokenSource _cts = new CancellationTokenSource();        
+        static async Task Main(string[] args)
+        {           
+            var builder = WebApplication.CreateBuilder(args);
+            
+            if (builder.Environment.IsProduction())
+            {
+                builder.Configuration.AddUserSecrets<Program>();
+            }
 
-            Console.WriteLine($"Создан пользователь {user.Name} \nЕго координаты x = {locationUser.X} y = {locationUser.Y}");
-
-            ILocation locationCoffe = new Location(5, 2);
-            ILocation locationCoffe1 = new Location(2, 8);
-            ILocation locationCoffe2 = new Location(15, 2);
-            ILocation locationCoffe3 = new Location(3, 5);
-            ILocation locationCoffe4 = new Location(1, 90);
-
-            sqlListMachine.AddCoffeMachine(locationCoffe, "Кофе автомат");
-            sqlListMachine.AddCoffeMachine(locationCoffe1, "Кофе автомат 1");
-            sqlListMachine.AddCoffeMachine(locationCoffe2, "Кофе автомат 2");
-            sqlListMachine.AddCoffeMachine(locationCoffe3, "Кофе автомат 3");
-            sqlListMachine.AddCoffeMachine(locationCoffe4, "Кофе автомат 4");
+            TelegramBotConfig.Token = builder.Configuration["TelegramBot:Token"];       
+            
 
 
-            sqlListMachine.ListMachine();
+            if (string.IsNullOrEmpty(TelegramBotConfig.Token))
+            {
+                Console.WriteLine("Ошибка: токен бота не установлен.");
+                return;
+            }
+            _botClient = new TelegramBotClient(TelegramBotConfig.Token);
 
+            var receiverOptions = new ReceiverOptions
+            {
+                AllowedUpdates = [UpdateType.Message, UpdateType.CallbackQuery],
+                DropPendingUpdates = true
+            };
 
-            var locator = new CoffeeMachineLocator();
-            var closestMachine = locator.FindClosestCoffeeMachine(user, sqlListMachine);
+            var handler = new UpdateHandler();
+            handler.OnHandleUpdateStarted += (message) =>
+                Console.WriteLine($"Началась обработка сообщения '{message}'");
+            handler.OnHandleUpdateCompleted += (message) =>
+                Console.WriteLine($"Закончилась обработка сообщения '{message}'");           
 
-            Console.WriteLine($"Ближайший кофе автомат: {closestMachine.Name}");
+            _botClient.StartReceiving(
+             handler.HandleUpdateAsync,
+             handler.HandleErrorAsync,
+             receiverOptions,
+             _cts.Token
+         );
+
+            var me = await _botClient.GetMe();
+            Console.WriteLine($"{me.FirstName} запущен!");
+
+            Console.WriteLine("Нажмите клавишу A для выхода");
+            while (true)
+            {
+                if (Console.ReadKey(true).Key == ConsoleKey.A)
+                {
+                    _cts.Cancel();
+                    break;
+                }
+                else
+                {
+                    var botInfo = await _botClient.GetMe();
+                    Console.WriteLine($"Информация о боте: {botInfo.FirstName} ({botInfo.Username})");
+                }
+            }
         }
     }
 }
+
